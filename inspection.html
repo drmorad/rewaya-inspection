@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Rewaya Hotel Inspection</title>
+<!-- jsPDF for PDF generation -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f0f2f5; color: #1a1a2e; }
+  .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+  .header { background: linear-gradient(135deg, #0f2878 0%, #1e3a8a 100%); color: white; padding: 20px; border-radius: 16px; margin-bottom: 20px; text-align: center; }
+  .hotel-selector { margin: 15px 0; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .hotel-btn { background: rgba(255,255,255,0.2); border: 2px solid transparent; color: white; padding: 10px 16px; border-radius: 20px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+  .hotel-btn.active { background: #fbbf24; color: #0f2878; border-color: #fbbf24; }
+  .card { background: white; border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+  .btn { background: #0f2878; color: white; border: none; padding: 12px 24px; border-radius: 25px; font-weight: 600; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+  .btn:hover { background: #1e3a8a; }
+  .btn-outline { background: transparent; border: 2px solid #0f2878; color: #0f2878; }
+  .btn-danger { background: #dc2626; }
+  .severity-group { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .severity-btn { border: 2px solid #e2e8f0; background: white; padding: 8px 14px; border-radius: 20px; cursor: pointer; font-size: 0.9em; }
+  .severity-btn.selected { border-color: currentColor; font-weight: bold; }
+  input, textarea, select { width: 100%; padding: 12px; margin: 8px 0; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 16px; }
+  label { font-weight: 600; margin-top: 12px; display: block; }
+  .photo-preview { width: 100%; height: 200px; background: #f8fafc; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 10px 0; background-size: cover; background-position: center; }
+  .findings-list { list-style: none; }
+  .finding-item { border-left: 6px solid #0f2878; padding: 12px 16px; margin: 8px 0; background: #f8fafc; border-radius: 0 12px 12px 0; }
+  .pdf-btn { position: fixed; bottom: 20px; right: 20px; background: #dc2626; color: white; border-radius: 50px; padding: 15px 25px; font-size: 1.2em; box-shadow: 0 8px 20px rgba(0,0,0,0.3); z-index: 1000; }
+  @media (max-width: 600px) { .container { padding: 10px; } }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>🏨 Rewaya Hotel & Resort</h1>
+    <p>Quality & Hygiene Inspection</p>
+    <div class="hotel-selector" id="hotelSelector"></div>
+  </div>
+
+  <!-- New Finding Form -->
+  <div class="card" id="formCard">
+    <h2>➕ New Finding</h2>
+    <label>📸 Photo Evidence</label>
+    <div class="photo-preview" id="photoPreview" onclick="document.getElementById('photoInput').click()">
+      <span id="photoPlaceholder">Tap to take/select photo</span>
+    </div>
+    <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none" onchange="previewPhoto(event)">
+
+    <label>Location *</label>
+    <input type="text" id="location" placeholder="e.g., Main Kitchen, Room 304">
+
+    <label>Severity</label>
+    <div class="severity-group" id="severityGroup"></div>
+
+    <label>Description *</label>
+    <textarea id="description" rows="3" placeholder="What did you observe?"></textarea>
+
+    <label>Root Cause *</label>
+    <textarea id="rootCause" rows="2" placeholder="Why did this happen?"></textarea>
+
+    <label>Responsible Department *</label>
+    <select id="department"></select>
+
+    <label>Corrective Action *</label>
+    <textarea id="correctiveAction" rows="2" placeholder="What should be done?"></textarea>
+
+    <label>Inspector Name</label>
+    <input type="text" id="inspector" value="Regional Quality Manager">
+
+    <button class="btn" onclick="saveFinding()" style="margin-top:15px; width:100%">💾 Save Finding</button>
+  </div>
+
+  <!-- Saved Findings -->
+  <div class="card">
+    <h2>📋 Inspection Findings</h2>
+    <ul class="findings-list" id="findingsList"></ul>
+    <p id="emptyMessage" style="text-align:center; color:#64748b;">No findings recorded yet.</p>
+  </div>
+</div>
+
+<button class="btn pdf-btn" onclick="generatePDF()">📄 Export PDF</button>
+
+<script>
+// ---------- DATA MODEL ----------
+const hotels = [
+  { id: 'H001', name: 'Rewaya Inn', code: 'RI-001', type: 'Inn' },
+  { id: 'H002', name: 'Rewaya Majestic', code: 'RM-001', type: 'Majestic' },
+  { id: 'H003', name: 'Rewaya Luxury', code: 'RL-001', type: 'Luxury' }
+];
+
+const departments = [
+  'Housekeeping','Food & Beverage','Kitchen','Engineering/Maintenance',
+  'Front Office','Security','Laundry','Stewarding','Gardening/Landscaping',
+  'Pool & Recreation','Spa & Wellness','Management','Purchasing','IT','Human Resources'
+];
+
+const severityLevels = [
+  { value:'critical', label:'Critical', color:'#dc2626' },
+  { value:'high', label:'High', color:'#ea580c' },
+  { value:'medium', label:'Medium', color:'#f59e0b' },
+  { value:'low', label:'Low', color:'#16a34a' },
+  { value:'observation', label:'Observation', color:'#2563eb' }
+];
+
+// ---------- STATE ----------
+let currentHotel = hotels[0];
+let selectedSeverity = 'medium';
+let photoData = null; // base64
+
+// ---------- INITIALIZATION ----------
+function init() {
+  // Hotel selector buttons
+  const sel = document.getElementById('hotelSelector');
+  hotels.forEach(h => {
+    const btn = document.createElement('span');
+    btn.className = 'hotel-btn' + (h.id === currentHotel.id ? ' active' : '');
+    btn.textContent = h.name;
+    btn.onclick = () => { currentHotel = h; updateHotelUI(); };
+    sel.appendChild(btn);
+  });
+
+  // Severity buttons
+  const sevGroup = document.getElementById('severityGroup');
+  severityLevels.forEach(s => {
+    const btn = document.createElement('span');
+    btn.className = 'severity-btn' + (s.value === selectedSeverity ? ' selected' : '');
+    btn.style.color = s.color;
+    btn.textContent = s.label;
+    btn.onclick = () => {
+      document.querySelectorAll('.severity-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      selectedSeverity = s.value;
+    };
+    sevGroup.appendChild(btn);
+  });
+
+  // Department dropdown
+  const deptSelect = document.getElementById('department');
+  departments.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d; opt.textContent = d;
+    deptSelect.appendChild(opt);
+  });
+
+  // Set initial active severity visual
+  document.querySelector('.severity-btn.selected').classList.add('selected');
+  renderFindings();
+}
+window.onload = init;
+
+function updateHotelUI() {
+  document.querySelectorAll('.hotel-btn').forEach(btn => {
+    btn.classList.remove('active');
+    if (btn.textContent === currentHotel.name) btn.classList.add('active');
+  });
+  renderFindings();
+}
+
+// ---------- PHOTO HANDLING ----------
+function previewPhoto(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    photoData = e.target.result;
+    document.getElementById('photoPreview').style.backgroundImage = `url(${photoData})`;
+    document.getElementById('photoPlaceholder').style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+}
+
+// ---------- LOCAL STORAGE ----------
+function getStorageKey() { return 'rewaya_findings_' + currentHotel.id; }
+
+function getFindings() {
+  const data = localStorage.getItem(getStorageKey());
+  return data ? JSON.parse(data) : [];
+}
+
+function saveFindings(findings) {
+  localStorage.setItem(getStorageKey(), JSON.stringify(findings));
+}
+
+function renderFindings() {
+  const findings = getFindings();
+  const list = document.getElementById('findingsList');
+  const emptyMsg = document.getElementById('emptyMessage');
+  list.innerHTML = '';
+  if (findings.length === 0) {
+    emptyMsg.style.display = 'block';
+    return;
+  }
+  emptyMsg.style.display = 'none';
+  findings.forEach((f, index) => {
+    const li = document.createElement('li');
+    li.className = 'finding-item';
+    const sev = severityLevels.find(s => s.value === f.severity);
+    li.innerHTML = `
+      <div style="display:flex; justify-content:space-between;">
+        <strong style="color:${sev.color}">${sev.label}</strong>
+        <small>${new Date(f.date).toLocaleString()}</small>
+      </div>
+      <div>📍 ${f.location || 'N/A'}</div>
+      <div>📝 ${f.description.substring(0, 60)}...</div>
+      <div>🏢 ${f.department}</div>
+      <button onclick="deleteFinding(${index})" style="background:none; border:none; color:#dc2626; margin-top:4px;">🗑️ Delete</button>
+    `;
+    list.appendChild(li);
+  });
+}
+
+function saveFinding() {
+  const location = document.getElementById('location').value.trim();
+  const description = document.getElementById('description').value.trim();
+  const rootCause = document.getElementById('rootCause').value.trim();
+  const correctiveAction = document.getElementById('correctiveAction').value.trim();
+  const inspector = document.getElementById('inspector').value.trim() || 'Regional Quality Manager';
+  const department = document.getElementById('department').value;
+
+  if (!description || !location || !rootCause || !correctiveAction) {
+    alert('Please fill all required fields (*)');
+    return;
+  }
+
+  const finding = {
+    id: Date.now().toString(),
+    hotelId: currentHotel.id,
+    photo: photoData || '',
+    location, description, rootCause, correctiveAction, inspector,
+    severity: selectedSeverity,
+    department,
+    date: new Date().toISOString(),
+    status: 'open'
+  };
+
+  const findings = getFindings();
+  findings.push(finding);
+  saveFindings(findings);
+
+  // Clear form
+  document.getElementById('location').value = '';
+  document.getElementById('description').value = '';
+  document.getElementById('rootCause').value = '';
+  document.getElementById('correctiveAction').value = '';
+  photoData = null;
+  document.getElementById('photoPreview').style.backgroundImage = '';
+  document.getElementById('photoPlaceholder').style.display = 'block';
+  document.getElementById('photoInput').value = '';
+
+  renderFindings();
+  alert('Finding saved successfully!');
+}
+
+function deleteFinding(index) {
+  if (!confirm('Delete this finding?')) return;
+  const findings = getFindings();
+  findings.splice(index, 1);
+  saveFindings(findings);
+  renderFindings();
+}
+
+// ---------- PDF GENERATION (jsPDF) ----------
+async function generatePDF() {
+  const findings = getFindings();
+  if (findings.length === 0) {
+    alert('No findings to export. Please add at least one finding.');
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = doc.internal.pageSize.getWidth();
+  let yPos = 15;
+
+  // Helper to add image from base64
+  async function addImageFromBase64(dataUrl, x, y, w, h) {
+    if (!dataUrl) return;
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        doc.addImage(img, 'JPEG', x, y, w, h);
+        resolve();
+      };
+      img.src = dataUrl;
+    });
+  }
+
+  // Header
+  doc.setFillColor(15, 40, 120);
+  doc.rect(15, yPos, pageWidth-30, 25, 'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.text('REWAYA HOTEL & RESORT', 20, yPos+10);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Quality & Hygiene Inspection Report', 20, yPos+17);
+  doc.setTextColor(251, 191, 36);
+  doc.setFontSize(10);
+  doc.text('CONFIDENTIAL', pageWidth-40, yPos+8);
+  yPos += 30;
+
+  // Hotel info
+  doc.setTextColor(0,0,0);
+  doc.setFontSize(11);
+  doc.text(`Property: ${currentHotel.name} (${currentHotel.code})`, 20, yPos);
+  doc.text(`Date: ${new Date().toLocaleDateString()}`, pageWidth-20, yPos, {align: 'right'});
+  yPos += 8;
+  doc.setDrawColor(200);
+  doc.line(20, yPos, pageWidth-20, yPos);
+  yPos += 8;
+
+  // Executive Summary
+  const critical = findings.filter(f => f.severity==='critical').length;
+  const high = findings.filter(f => f.severity==='high').length;
+  const medium = findings.filter(f => f.severity==='medium').length;
+  const low = findings.filter(f => f.severity==='low').length;
+
+  doc.setFontSize(14);
+  doc.setTextColor(15,40,120);
+  doc.text('Executive Summary', 20, yPos);
+  yPos += 8;
+
+  doc.autoTable({
+    startY: yPos,
+    head: [['Total', 'Critical', 'High', 'Medium', 'Low']],
+    body: [[findings.length.toString(), critical.toString(), high.toString(), medium.toString(), low.toString()]],
+    theme: 'grid',
+    styles: { fontSize: 10, halign: 'center' },
+    headStyles: { fillColor: [15,40,120] }
+  });
+  yPos = doc.lastAutoTable.finalY + 10;
+
+  // Findings loop
+  for (let i = 0; i < findings.length; i++) {
+    const f = findings[i];
+    // Page break if needed
+    if (yPos > 240) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    // Severity color
+    const sevCol = severityLevels.find(s=>s.value===f.severity)?.color || '#000';
+    const rgb = hexToRgb(sevCol);
+
+    // Card background
+    doc.setFillColor(248,250,252);
+    doc.setDrawColor(rgb.r, rgb.g, rgb.b);
+    doc.setLineWidth(1);
+    doc.roundedRect(20, yPos, pageWidth-40, 85, 3, 3, 'FD');
+
+    // Title
+    doc.setFontSize(11);
+    doc.setTextColor(15,40,120);
+    doc.setFont('helvetica','bold');
+    doc.text(`Finding #${i+1}`, 25, yPos+7);
+    doc.setTextColor(rgb.r, rgb.g, rgb.b);
+    doc.setFont('helvetica','normal');
+    doc.text(`Severity: ${severityLevels.find(s=>s.value===f.severity).label}`, pageWidth-25, yPos+7, {align:'right'});
+
+    // Photo thumbnail (if exists)
+    if (f.photo) {
+      try {
+        await addImageFromBase64(f.photo, 25, yPos+10, 25, 20);
+      } catch(e) {}
+    } else {
+      doc.setDrawColor(180);
+      doc.setFillColor(230,230,230);
+      doc.roundedRect(25, yPos+10, 25, 20, 2, 2, 'FD');
+      doc.setFontSize(8);
+      doc.setTextColor(150);
+      doc.text('No photo', 37, yPos+21, {align:'center'});
+    }
+
+    // Details next to photo
+    const textX = 55;
+    doc.setFontSize(8);
+    doc.setTextColor(0,0,0);
+    doc.text(`Location: ${f.location}`, textX, yPos+15);
+    doc.text(`Description: ${f.description.substring(0,45)}...`, textX, yPos+22);
+    doc.text(`Root Cause: ${f.rootCause.substring(0,40)}...`, textX, yPos+29);
+    doc.text(`Dept: ${f.department} | Inspector: ${f.inspector}`, textX, yPos+36);
+    doc.text(`Action: ${f.correctiveAction.substring(0,45)}...`, textX, yPos+43);
+
+    yPos += 90;
+  }
+
+  // Footer
+  doc.setFontSize(8);
+  doc.setTextColor(150);
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.text(`Generated on ${new Date().toLocaleString()} | Page ${i} of ${pageCount}`, pageWidth/2, 290, {align:'center'});
+    doc.text('Rewaya Hotel & Resort - Quality Management System', pageWidth/2, 295, {align:'center'});
+  }
+
+  doc.save(`Inspection_${currentHotel.code}_${new Date().toISOString().slice(0,10)}.pdf`);
+}
+
+function hexToRgb(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : {r:0,g:0,b:0};
+}
+</script>
+</body>
+</html>
